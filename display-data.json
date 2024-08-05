@@ -1,0 +1,9 @@
+{
+  "nextbus": 5,
+  "nextnextbus": 15,
+  "garbage": true,
+  "yard": true,
+  "green": true,
+  "blue": true,
+  "black": false
+}
