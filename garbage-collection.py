@@ -1,4 +1,3 @@
-########### Python 3.2 #############
 import urllib.request, json
 import os
 from dotenv import load_dotenv

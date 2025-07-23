@@ -32,3 +32,12 @@ Have an e-paper display at home that gives you some important daily info. For ex
 > Dashboard design Progress 
 > ![Dashboard Layout](/img_doc/IMG_5402.jpeg)
 > ![Raspberry PI Zero Connection](/img_doc/IMG_5403.jpeg)
+
+
+4. For OcTranspo API, make sure you get a key from their Dev Portal. Then create a .env file where you can store that key
+
+> [!NOTE]
+> .env file
+> API_KEY="xxxxxxxxxxxxxxxxxxxxxxxxx"
+
+5. Make sure you also get the most up to date static files for current stops and trip info from OCTranspo and save it under GTFSExport
