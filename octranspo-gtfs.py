@@ -55,6 +55,8 @@ def get_bus_atStop(bus_id, stop_code):
     feed = gtfs_realtime_pb2.FeedMessage()
     feed.ParseFromString(data)
 
+    allTimes = []
+
     for entity in feed.entity:
         if not entity.HasField("trip_update"):
             continue
@@ -65,7 +67,7 @@ def get_bus_atStop(bus_id, stop_code):
         if route_id != bus_id:
             continue  # Skip other routes
 
-        print(f"\nTrip ID: {trip_update.trip.trip_id}, Route: {route_id}\n {trips_dict[trip_update.trip.trip_id]}")
+        print(f"\nTrip ID: {trip_update.trip.trip_id}, Route: {route_id}\n ") #{trips_dict[trip_update.trip.trip_id]}
         for stu in trip_update.stop_time_update:
             stop_id = stu.stop_id
 
@@ -86,65 +88,20 @@ def get_bus_atStop(bus_id, stop_code):
 
                 readable_time = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
                 print(f"  {kind} at Stop {stop_id} => {readable_time}")
-                #return readable_time, timestamp
+                allTimes.append(timestamp)
+    allTimes.sort()
+    return allTimes
 
+def update_json():
+    with open('./display-data.json', 'r') as file:
+        data = json.load(file)
+    with open('./display-data.json', 'w') as file:
+        data['90'] = get_bus_atStop('99','4645')
+        data['74'] = get_bus_atStop('74', '9819')
+        data['70'] = get_bus_atStop('70', '9819')
+        data['110'] = get_bus_atStop('110', '9819')
+        json.dump(data, file, indent=4)
 
-get_bus_atStop('99','3048')
-# try:
-#     url = "https://nextrip-public-api.azure-api.net/octranspo/gtfs-rt-tp/beta/v1/TripUpdates"
-#     #url = "https://nextrip-public-api.azure-api.net/octranspo/gtfs-rt-vp/beta/v1/VehiclePositions"
-#     hdr ={
-#     # Request headers
-#     'Cache-Control': 'no-cache',
-#     'Ocp-Apim-Subscription-Key': API_KEY,
-#     }
-#
-#     req = urllib.request.Request(url, headers=hdr)
-#
-#     TARGET_ROUTE_ID = "99"
-#     TARGET_STOP_ID = "4645"
-#
-#     req.get_method = lambda: 'GET'
-#     response = urllib.request.urlopen(req)
-#
-#     data = response.read()
-#     feed = gtfs_realtime_pb2.FeedMessage()
-#     feed.ParseFromString(data)
-#
-#     try:
-#         for entity in feed.entity:
-#             if not entity.HasField("trip_update"):
-#                 continue
-#
-#             trip_update = entity.trip_update
-#             route_id = trip_update.trip.route_id
-#
-#             if route_id != TARGET_ROUTE_ID:
-#                 continue  # Skip other routes
-#
-#             print(f"\nTrip ID: {trip_update.trip.trip_id}, Route: {route_id}\n {trips_dict[trip_update.trip.trip_id]}")
-#             for stu in trip_update.stop_time_update:
-#                 stop_id = stu.stop_id
-#
-#                 # Debug: print all stop IDs for this trip
-#                 print(f"  -> Stop ID in trip: {stop_id} {stops_dict[stop_id]['stop_name']}")
-#
-#                 # Check if this is the stop we care about
-#                 if stops_dict[stop_id]['stop_code'] == TARGET_STOP_ID:
-#                     # Prefer arrival time, fallback to departure
-#                     if stu.HasField("arrival"):
-#                         timestamp = stu.arrival.time
-#                         kind = "Arrival"
-#                     elif stu.HasField("departure"):
-#                         timestamp = stu.departure.time
-#                         kind = "Departure"
-#                     else:
-#                         continue
-#
-#                     readable_time = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
-#                     print(f"  {kind} at Stop {stop_id} => {readable_time}")
-#
-#     except json.JSONDecodeError as e:
-#         print("Error decoding JSON:", e)
-# except Exception as e:
-#     print(e)
+update_json()
+# print(get_bus_atStop('99','4645'))
+# print(get_bus_atStop('74','9819'))

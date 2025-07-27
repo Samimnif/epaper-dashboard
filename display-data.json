@@ -1,9 +1,19 @@
 {
-  "nextbus": 5,
-  "nextnextbus": 15,
-  "garbage": true,
-  "yard": true,
-  "green": true,
-  "blue": true,
-  "black": false
+    "90": [
+        1753645174,
+        1753646871
+    ],
+    "70": [
+        1753645506
+    ],
+    "74": [
+        1753646098
+    ],
+    "110": [],
+    "date": "20250724",
+    "garbage": false,
+    "yard": true,
+    "green": true,
+    "blue": false,
+    "black": true
 }
