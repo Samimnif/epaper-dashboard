@@ -111,7 +111,7 @@ class edisplay:
 
         dt = datetime.strptime(self.garbageD, "%Y%m%d")
         formatted = dt.strftime("%B %d, %Y")
-        draw.text((5, 125), 'Collection Date: formatted', font=self.font80, fill=self.epd.BLACK)
+        draw.text((5, 125), 'Collection Date: formatted', font=self.font24, fill=self.epd.BLACK)
         if self.garbage:
             draw.rectangle((5, 170, 55, 220), fill=self.epd.RED)
             draw.text((60, 185), 'Garbage', font=self.font18, fill=self.epd.RED)
