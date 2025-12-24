@@ -179,7 +179,8 @@ if __name__ == '__main__':
     #newdisplay.read_data("display-data.json")
     #newdisplay.sample_disp()
     newdisplay.day_disp()
-    #newdisplay.image_disp()
+    time.sleep(3)
+    newdisplay.gallery_disp()
 
 """epd = epd7in3f.EPD()
 epd.init()
