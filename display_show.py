@@ -16,6 +16,7 @@ class edisplay:
         self.green = False
         self.blue = False
         self.black = False
+        self.garbageD = ""
         self.bus = {"99":[], "73":[], "74":[], "70":[], "110":[], "198":[], "299":[], "283":[]}
 
         self.bus_icons = {}  # cache
@@ -40,6 +41,8 @@ class edisplay:
         self.green = data["green"]
         self.blue = data["blue"]
         self.black = data["black"]
+        self.garbageD = data["date"]
+
         self.bus["99"] = data["99"]
         self.bus["70"] = data["73"]
         self.bus["73"] = data["70"]
@@ -105,6 +108,10 @@ class edisplay:
 
         draw.text((5, 0), f'{date.today().strftime("%B %d, %Y")}', font=self.font40, fill=self.epd.BLACK)
         draw.text((5, 30), f'{datetime.now().strftime("%H:%M")}', font=self.font80, fill=self.epd.BLACK)
+
+        dt = datetime.strptime(self.garbageD, "%Y%m%d")
+        formatted = dt.strftime("%B %d, %Y")
+        draw.text((5, 125), 'Collection Date: formatted', font=self.font80, fill=self.epd.BLACK)
         if self.garbage:
             draw.rectangle((5, 170, 55, 220), fill=self.epd.RED)
             draw.text((60, 185), 'Garbage', font=self.font18, fill=self.epd.RED)
