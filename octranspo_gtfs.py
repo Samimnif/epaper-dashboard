@@ -96,10 +96,15 @@ def update_json():
     with open('./display-data.json', 'r') as file:
         data = json.load(file)
     with open('./display-data.json', 'w') as file:
-        data['90'] = get_bus_atStop('99','4645')
+        data['99'] = get_bus_atStop('99','4645')
+        data['73'] = get_bus_atStop('73', '9819')
         data['74'] = get_bus_atStop('74', '9819')
         data['70'] = get_bus_atStop('70', '9819')
         data['110'] = get_bus_atStop('110', '9819')
+        data['198'] = get_bus_atStop('198', '9819')
+
+        data['299'] = get_bus_atStop('299', '4645')
+        data['283'] = get_bus_atStop('283', '9819')
         json.dump(data, file, indent=4)
 
 update_json()

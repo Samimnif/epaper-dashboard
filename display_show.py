@@ -16,7 +16,7 @@ class edisplay:
         self.green = False
         self.blue = False
         self.black = False
-        self.bus = {"90":[], "70":[], "74":[], "110":[]}
+        self.bus = {"99":[], "73":[], "74":[], "70":[], "110":[], "198":[], "299":[], "283":[]}
 
         self.epd = epd7in3f.EPD()
         self.epd.init()
@@ -36,10 +36,14 @@ class edisplay:
         self.green = data["green"]
         self.blue = data["blue"]
         self.black = data["black"]
-        self.bus["90"] = data["90"]
-        self.bus["70"] = data["70"]
+        self.bus["99"] = data["99"]
+        self.bus["70"] = data["73"]
+        self.bus["73"] = data["70"]
         self.bus["74"] = data["74"]
         self.bus["110"] = data["110"]
+        self.bus["198"] = data["198"]
+        self.bus["299"] = data["299"]
+        self.bus["283"] = data["283"]
 
     def update_display(self):
         draw = ImageDraw.Draw(self.Himage)
@@ -100,8 +104,10 @@ class edisplay:
         #OCtranspo Part
         draw.text((400, 0), f'Buses', font=self.font40, fill=self.epd.RED)
         draw.text((400, 50), '99', font=self.font80, fill=self.epd.BLUE)
-        for i, b in enumerate(self.bus["90"], start=1):
-            draw.text((450, 50*i), f'{datetime.fromtimestamp(b).strftime("%H:%M:%S")}', font=self.font24, fill=self.epd.BLUE)
+        for y, buses in enumerate(self.bus, start=1):
+            draw.text((400, 50*y), f'{buses.key}', font=self.font80, fill=self.epd.BLUE)
+            for i, b in enumerate(buses, start=1):
+                draw.text((500, 50*i*y), f'{datetime.fromtimestamp(b).strftime("%H:%M:%S")}', font=self.font24, fill=self.epd.BLUE)
         #draw.text((400, 200), f'Then {datetime.fromtimestamp(self.bus["90"][0]).strftime("%H:%M:%S")}', font=self.font40, fill=self.epd.RED)
 
         self.epd.display(self.epd.getbuffer(self.Himage))
