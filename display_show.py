@@ -82,7 +82,8 @@ class edisplay:
     def gallery_disp(self):
         folder = "gallery"
         files = [
-            f for f in os.listdir(folder)
+            os.path.join(folder, f)
+            for f in os.listdir(folder)
             if os.path.isfile(os.path.join(folder, f))
         ]
 
