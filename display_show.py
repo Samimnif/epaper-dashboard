@@ -73,7 +73,7 @@ class edisplay:
         self.epd.display(self.epd.getbuffer(self.Himage))
 
     def image_disp(self):
-        Himage = Image.open('7.3inch-1.bmp')
+        Himage = Image.open('70.bmp')
         self.epd.display(self.epd.getbuffer(Himage))
 
     def day_disp(self):
@@ -133,7 +133,8 @@ if __name__ == '__main__':
     newdisplay = edisplay()
     #newdisplay.read_data("display-data.json")
     #newdisplay.sample_disp()
-    newdisplay.day_disp()
+    #newdisplay.day_disp()
+    newdisplay.image_disp()
 
 """epd = epd7in3f.EPD()
 epd.init()
