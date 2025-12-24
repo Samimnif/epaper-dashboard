@@ -94,12 +94,14 @@ class edisplay:
             draw.text((60, 425), 'Paper/Cardboard', font=self.font18, fill=self.epd.BLACK)
 
         #separator
-        draw.line((400, 5, 350, 450), fill = self.epd.BLACK)
+        draw.line((380, 5, 380, 450), fill = self.epd.BLACK)
 
         #OCtranspo Part
-        draw.text((400, 20), f'Next Bus {datetime.fromtimestamp(self.bus["90"][0]).strftime("%H:%M:%S")}', font=self.font40, fill=self.epd.RED)
+        draw.text((400, 0), f'Bus {datetime.fromtimestamp(self.bus["90"][0]).strftime("%H:%M:%S")}', font=self.font40, fill=self.epd.RED)
         draw.text((400, 50), '99', font=self.font80, fill=self.epd.BLUE)
-        draw.text((400, 200), f'Then {datetime.fromtimestamp(self.bus["90"][0]).strftime("%H:%M:%S")}', font=self.font40, fill=self.epd.RED)
+        for i, b in enumerate(self.bus["90"]):
+            draw.text((400, 50*i), '99', font=self.font80, fill=self.epd.BLUE)
+        #draw.text((400, 200), f'Then {datetime.fromtimestamp(self.bus["90"][0]).strftime("%H:%M:%S")}', font=self.font40, fill=self.epd.RED)
 
         self.epd.display(self.epd.getbuffer(self.Himage))
 
