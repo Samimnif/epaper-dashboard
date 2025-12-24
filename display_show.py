@@ -77,7 +77,7 @@ class edisplay:
         draw = ImageDraw.Draw(self.Himage)
 
         draw.text((5, 0), f'{date.today().strftime("%B %d, %Y")}', font=self.font40, fill=self.epd.BLACK)
-        draw.text((5, 10), f'{date.today().strftime("%H:%M:%S")}', font=self.font80, fill=self.epd.BLACK)
+        draw.text((5, 20), f'{datetime.now().strftime("%H:%M")}', font=self.font80, fill=self.epd.BLACK)
         if self.garbage:
             draw.rectangle((5, 170, 55, 220), fill=self.epd.RED)
             draw.text((60, 185), 'Garbage', font=self.font18, fill=self.epd.RED)
@@ -98,10 +98,10 @@ class edisplay:
         draw.line((380, 5, 380, 450), fill = self.epd.BLACK)
 
         #OCtranspo Part
-        draw.text((400, 0), f'Bus {datetime.fromtimestamp(self.bus["90"][0]).strftime("%H:%M:%S")}', font=self.font40, fill=self.epd.RED)
+        draw.text((400, 0), f'Buses', font=self.font40, fill=self.epd.RED)
         draw.text((400, 50), '99', font=self.font80, fill=self.epd.BLUE)
         for i, b in enumerate(self.bus["90"], start=1):
-            draw.text((450, 25*i), f'{datetime.fromtimestamp(b).strftime("%H:%M:%S")}', font=self.font24, fill=self.epd.BLUE)
+            draw.text((450, 50*i), f'{datetime.fromtimestamp(b).strftime("%H:%M:%S")}', font=self.font24, fill=self.epd.BLUE)
         #draw.text((400, 200), f'Then {datetime.fromtimestamp(self.bus["90"][0]).strftime("%H:%M:%S")}', font=self.font40, fill=self.epd.RED)
 
         self.epd.display(self.epd.getbuffer(self.Himage))
