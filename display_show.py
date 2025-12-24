@@ -87,6 +87,7 @@ class edisplay:
         ]
 
         for i in files:
+            print(i)
             Himage = Image.open(i)
             self.epd.display(self.epd.getbuffer(Himage))
             time.sleep(5)
