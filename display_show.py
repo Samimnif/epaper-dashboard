@@ -18,6 +18,10 @@ class edisplay:
         self.black = False
         self.bus = {"99":[], "73":[], "74":[], "70":[], "110":[], "198":[], "299":[], "283":[]}
 
+        self.bus_icons = {}  # cache
+        self.icon_dir = "./icons"
+        self.icon_size = (70, 35)  # width, height (tune)
+
         self.epd = epd7in3f.EPD()
         self.epd.init()
         self.epd.Clear()
@@ -73,8 +77,27 @@ class edisplay:
         self.epd.display(self.epd.getbuffer(self.Himage))
 
     def image_disp(self):
-        Himage = Image.open('70.bmp')
+        Himage = Image.open('bus_icons/70.bmp')
         self.epd.display(self.epd.getbuffer(Himage))
+
+    def get_bus_icon(self, route: str):
+        """Return a PIL Image for the route icon, cached. None if missing."""
+        if route in self.bus_icons:
+            return self.bus_icons[route]
+
+        path = os.path.join(self.icon_dir, f"{route}.bmp")
+        if not os.path.exists(path):
+            self.bus_icons[route] = None
+            return None
+
+        img = Image.open(path).convert("RGB")
+
+        # resize to fit your row height nicely
+        if self.icon_size:
+            img = img.resize(self.icon_size)
+
+        self.bus_icons[route] = img
+        return img
 
     def day_disp(self):
         self.read_data("./display-data.json")
@@ -116,7 +139,14 @@ class edisplay:
             y = header_h + row * row_h
 
             # Route label
-            draw.text((x_route, y), route, font=self.font40, fill=self.epd.BLACK)
+            #draw.text((x_route, y), route, font=self.font40, fill=self.epd.BLACK)
+
+            icon = self.get_bus_icon(route)
+            if icon is not None:
+                self.Himage.paste(icon, (x_route, y + 5))  # +5 to vertically center a bit
+            else:
+                # fallback if icon missing
+                draw.text((x_route, y), route, font=self.font40, fill=self.epd.BLACK)
 
             # Times across the row
             for col, ts in enumerate(times[:max_times]):
