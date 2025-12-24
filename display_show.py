@@ -107,6 +107,7 @@ class edisplay:
         header_h = 50
         row_h = 45  # vertical spacing between routes
         time_gap = 85  # horizontal spacing between times (adjust)
+        now = int(time.time())
 
         max_times = 4  # show only next N times per route (optional)
 
