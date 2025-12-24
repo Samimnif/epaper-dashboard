@@ -99,8 +99,8 @@ class edisplay:
         #OCtranspo Part
         draw.text((400, 0), f'Bus {datetime.fromtimestamp(self.bus["90"][0]).strftime("%H:%M:%S")}', font=self.font40, fill=self.epd.RED)
         draw.text((400, 50), '99', font=self.font80, fill=self.epd.BLUE)
-        for i, b in enumerate(self.bus["90"]):
-            draw.text((400, 50*i), '99', font=self.font80, fill=self.epd.BLUE)
+        for i, b in enumerate(self.bus["90"], start=1):
+            draw.text((400, 50*i), f'{datetime.fromtimestamp(b).strftime("%H:%M:%S")}', font=self.font80, fill=self.epd.BLUE)
         #draw.text((400, 200), f'Then {datetime.fromtimestamp(self.bus["90"][0]).strftime("%H:%M:%S")}', font=self.font40, fill=self.epd.RED)
 
         self.epd.display(self.epd.getbuffer(self.Himage))
