@@ -105,9 +105,9 @@ class edisplay:
         draw.text((400, 0), f'Buses', font=self.font40, fill=self.epd.RED)
         #draw.text((400, 40), '99', font=self.font80, fill=self.epd.BLUE)
         for y, (route, times) in enumerate(self.bus.items(), start=1):
-            draw.text((400, 40 * y), route, font=self.font80, fill=self.epd.BLUE)
+            draw.text((400, 60 * y), route, font=self.font80, fill=self.epd.BLUE)
             for i, ts in enumerate(times, start=1):
-                draw.text((500, 40 * y + 30 * i), datetime.fromtimestamp(int(ts)).strftime("%H:%M:%S"), font=self.font24, fill=self.epd.BLUE)
+                draw.text((500, 60 * y + 30 * i), datetime.fromtimestamp(int(ts)).strftime("%H:%M:%S"), font=self.font24, fill=self.epd.BLUE)
         #draw.text((400, 200), f'Then {datetime.fromtimestamp(self.bus["90"][0]).strftime("%H:%M:%S")}', font=self.font40, fill=self.epd.RED)
 
         self.epd.display(self.epd.getbuffer(self.Himage))
