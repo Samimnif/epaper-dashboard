@@ -7,7 +7,7 @@ import time
 from PIL import Image,ImageDraw,ImageFont
 import traceback
 import json
-from datetime import date
+from datetime import date, datetime
 
 class edisplay:
     def __init__(self):
@@ -16,6 +16,7 @@ class edisplay:
         self.green = False
         self.blue = False
         self.black = False
+        self.bus = {"90":[], "70":[], "74":[], "110":[]}
 
         self.epd = epd7in3f.EPD()
         self.epd.init()
@@ -35,6 +36,10 @@ class edisplay:
         self.green = data["green"]
         self.blue = data["blue"]
         self.black = data["black"]
+        self.bus["90"] = data["90"]
+        self.bus["70"] = data["70"]
+        self.bus["74"] = data["74"]
+        self.bus["110"] = data["110"]
 
     def update_display(self):
         draw = ImageDraw.Draw(self.Himage)
@@ -67,10 +72,43 @@ class edisplay:
         Himage = Image.open('7.3inch-1.bmp')
         self.epd.display(self.epd.getbuffer(Himage))
 
+    def day_disp(self):
+        self.read_data("./display-data.json")
+        draw = ImageDraw.Draw(self.Himage)
+
+        draw.text((5, 0), f'{date.today().strftime("%B %d, %Y")}', font=self.font40, fill=self.epd.RED)
+        if self.garbage:
+            draw.rectangle((5, 170, 55, 220), fill=self.epd.ORANGE)
+            draw.text((60, 185), 'Garbage', font=self.font18, fill=self.epd.ORANGE)
+        if self.yard:
+            draw.rectangle((5, 230, 55, 280), fill=self.epd.YELLOW)
+            draw.text((60, 245), 'Yard Trimmings', font=self.font18, fill=self.epd.YELLOW)
+        if self.green:
+            draw.rectangle((5, 290, 55, 340), fill=self.epd.GREEN)
+            draw.text((60, 305), 'Green Bin', font=self.font18, fill=self.epd.GREEN)
+        if self.blue:
+            draw.rectangle((5, 350, 55, 400), fill=self.epd.BLUE)
+            draw.text((60, 365), 'Plastic', font=self.font18, fill=self.epd.BLUE)
+        if self.black:
+            draw.rectangle((5, 410, 55, 460), fill=self.epd.BLACK)
+            draw.text((60, 425), 'Paper/Cardboard', font=self.font18, fill=self.epd.BLACK)
+
+        #separator
+        draw.line((350, 5, 350, 450), fill = self.epd.BLACK)
+
+        #OCtranspo Part
+        draw.text((400, 20), f'Next Bus {datetime.fromtimestamp(self.bus["90"][0])}', font=self.font40, fill=self.epd.RED)
+        draw.text((400, 50), '99', font=self.font80, fill=self.epd.BLUE)
+        draw.text((400, 200), f'Then {datetime.fromtimestamp(self.bus["90"][0])}', font=self.font40, fill=self.epd.RED)
+
+        self.epd.display(self.epd.getbuffer(self.Himage))
+
+
 if __name__ == '__main__':
     newdisplay = edisplay()
     #newdisplay.read_data("display-data.json")
-    newdisplay.sample_disp()
+    #newdisplay.sample_disp()
+    newdisplay.image_disp()
 
 """epd = epd7in3f.EPD()
 epd.init()
