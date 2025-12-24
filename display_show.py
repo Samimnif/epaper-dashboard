@@ -77,7 +77,7 @@ class edisplay:
         self.epd.display(self.epd.getbuffer(self.Himage))
 
     def image_disp(self):
-        Himage = Image.open('bus_icons/70.bmp')
+        Himage = Image.open('bus_icons/archive/70.bmp')
         self.epd.display(self.epd.getbuffer(Himage))
 
     def get_bus_icon(self, route: str):
