@@ -108,7 +108,7 @@ if __name__ == '__main__':
     newdisplay = edisplay()
     #newdisplay.read_data("display-data.json")
     #newdisplay.sample_disp()
-    newdisplay.image_disp()
+    newdisplay.day_disp()
 
 """epd = epd7in3f.EPD()
 epd.init()
