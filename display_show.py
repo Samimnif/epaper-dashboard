@@ -19,7 +19,7 @@ class edisplay:
         self.bus = {"99":[], "73":[], "74":[], "70":[], "110":[], "198":[], "299":[], "283":[]}
 
         self.bus_icons = {}  # cache
-        self.icon_dir = "./icons"
+        self.icon_dir = "./bus_icons"
         self.icon_size = (70, 35)  # width, height (tune)
 
         self.epd = epd7in3f.EPD()
