@@ -115,12 +115,15 @@ class edisplay:
             y = header_h + row * row_h
 
             # Route label
-            draw.text((x_route, y), route, font=self.font40, fill=self.epd.BLUE)
+            draw.text((x_route, y), route, font=self.font40, fill=self.epd.BLACK)
 
             # Times across the row
             for col, ts in enumerate(times[:max_times]):
+                diff_sec = int(ts) - now
+                diff_min = max(0, diff_sec // 60)  # no negatives
+
                 t_str = datetime.fromtimestamp(int(ts)).strftime("%H:%M")
-                draw.text((x_times + col * time_gap, y + 10), t_str, font=self.font18, fill=self.epd.BLUE)
+                draw.text((x_times + col * time_gap, y + 10), f"{diff_min} min", font=self.font18, fill=self.epd.BLACK)
 
         self.epd.display(self.epd.getbuffer(self.Himage))
 
