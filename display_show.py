@@ -63,6 +63,10 @@ class edisplay:
 
         self.epd.display(self.epd.getbuffer(self.Himage))
 
+    def image_disp(self):
+        Himage = Image.open('7.3inch-1.bmp')
+        self.epd.display(self.epd.getbuffer(Himage))
+
 if __name__ == '__main__':
     newdisplay = edisplay()
     #newdisplay.read_data("display-data.json")
