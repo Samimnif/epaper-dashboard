@@ -102,13 +102,25 @@ class edisplay:
         draw.line((380, 5, 380, 450), fill = self.epd.BLACK)
 
         #OCtranspo Part
+        x_route = 400
+        x_times = 500
+        header_h = 50
+        row_h = 45  # vertical spacing between routes
+        time_gap = 85  # horizontal spacing between times (adjust)
+
+        max_times = 4  # show only next N times per route (optional)
+
         draw.text((400, 0), f'Buses', font=self.font40, fill=self.epd.RED)
-        #draw.text((400, 40), '99', font=self.font80, fill=self.epd.BLUE)
-        for y, (route, times) in enumerate(self.bus.items(), start=1):
-            draw.text((400, 50 * y), route, font=self.font40, fill=self.epd.BLUE)
-            for i, ts in enumerate(times, start=1):
-                draw.text((500, 50 * y + 30 * i), datetime.fromtimestamp(int(ts)).strftime("%H:%M:%S"), font=self.font24, fill=self.epd.BLUE)
-        #draw.text((400, 200), f'Then {datetime.fromtimestamp(self.bus["90"][0]).strftime("%H:%M:%S")}', font=self.font40, fill=self.epd.RED)
+        for row, (route, times) in enumerate(self.bus.items()):
+            y = header_h + row * row_h
+
+            # Route label
+            draw.text((x_route, y), route, font=self.font40, fill=self.epd.BLUE)
+
+            # Times across the row
+            for col, ts in enumerate(times[:max_times]):
+                t_str = datetime.fromtimestamp(int(ts)).strftime("%H:%M")
+                draw.text((x_times + col * time_gap, y + 10), t_str, font=self.font18, fill=self.epd.BLUE)
 
         self.epd.display(self.epd.getbuffer(self.Himage))
 
