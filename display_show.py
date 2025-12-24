@@ -79,9 +79,17 @@ class edisplay:
 
         self.epd.display(self.epd.getbuffer(self.Himage))
 
-    def image_disp(self):
-        Himage = Image.open('bus_icons/archive/70.bmp')
-        self.epd.display(self.epd.getbuffer(Himage))
+    def gallery_disp(self):
+        folder = "gallery"
+        files = [
+            f for f in os.listdir(folder)
+            if os.path.isfile(os.path.join(folder, f))
+        ]
+
+        for i in files:
+            Himage = Image.open(i)
+            self.epd.display(self.epd.getbuffer(Himage))
+            time.sleep(5)
 
     def get_bus_icon(self, route: str):
         """Return a PIL Image for the route icon, cached. None if missing."""
