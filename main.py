@@ -10,6 +10,18 @@ display = edisplay()
 threading.Timer(30, update_json).start()
 threading.Timer(86400, get_garbage).start()
 
+MORNING_START = 5   # 05:00
+MORNING_END = 10    # 10:00 (exclusive)
+
 while True:
+    now = datetime.now()
+    hour = now.hour
+
     display.day_disp()
+    display.gallery_disp()
+    # if MORNING_START <= hour < MORNING_END:
+    #     display.day_disp()
+    # else:
+    #     display.gallery_disp()
+
     time.sleep(60)
