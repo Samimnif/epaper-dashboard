@@ -18,6 +18,7 @@ while True:
     hour = now.hour
 
     display.day_disp()
+    time.sleep(5)
     display.gallery_disp()
     # if MORNING_START <= hour < MORNING_END:
     #     display.day_disp()

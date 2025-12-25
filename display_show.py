@@ -91,7 +91,7 @@ class edisplay:
             print(i)
             Himage = Image.open(i)
             self.epd.display(self.epd.getbuffer(Himage))
-            time.sleep(5)
+            time.sleep(30)
 
     def get_bus_icon(self, route: str):
         """Return a PIL Image for the route icon, cached. None if missing."""
