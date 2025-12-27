@@ -17,12 +17,12 @@ while True:
     now = datetime.now()
     hour = now.hour
 
-    display.day_disp()
-    time.sleep(5)
-    display.gallery_disp()
-    # if MORNING_START <= hour < MORNING_END:
-    #     display.day_disp()
-    # else:
-    #     display.gallery_disp()
+    # display.day_disp()
+    # time.sleep(5)
+    # display.gallery_disp()
+    if MORNING_START <= hour < MORNING_END:
+        display.day_disp()
+    else:
+        display.gallery_disp()
 
     time.sleep(60)

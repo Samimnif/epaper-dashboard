@@ -91,7 +91,7 @@ class edisplay:
             print(i)
             Himage = Image.open(i)
             self.epd.display(self.epd.getbuffer(Himage))
-            time.sleep(30)
+            time.sleep(3600)
 
     def get_bus_icon(self, route: str):
         """Return a PIL Image for the route icon, cached. None if missing."""
@@ -114,6 +114,9 @@ class edisplay:
 
     def day_disp(self):
         self.read_data("./display-data.json")
+
+        self.Himage = Image.new('RGB', (self.epd.width, self.epd.height), self.epd.WHITE)  # 255: clear the frame
+
         draw = ImageDraw.Draw(self.Himage)
 
         draw.text((5, 0), f'{date.today().strftime("%B %d, %Y")}', font=self.font40, fill=self.epd.BLACK)
