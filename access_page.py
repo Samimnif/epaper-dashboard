@@ -129,6 +129,7 @@ PAGE = """
       <table class="table table-striped table-hover align-middle mb-0">
         <thead class="table-light">
           <tr>
+          <th>Image</th>
             <th>File</th>
             <th style="width: 110px;">Size</th>
             <th style="width: 190px;">Modified</th>
@@ -139,6 +140,7 @@ PAGE = """
         <tbody>
           {% for f in files %}
             <tr>
+            <td><img src="./gallery/{{ f.name }}" style="height:70px"></td>
               <td class="path">
                 <a class="mono" href="{{ f.url }}">{{ f.name }}</a>
               </td>
@@ -225,5 +227,5 @@ def gallery_file(filename):
 
 if __name__ == "__main__":
     # For LAN access on your Pi:
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=4000, debug=True)
     #app.run(host="127.0.0.1", port=5000, debug=True)
