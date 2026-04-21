@@ -11,7 +11,7 @@ threading.Timer(30, update_json).start()
 threading.Timer(86400, get_garbage).start()
 
 MORNING_START = 5   # 05:00
-MORNING_END = 11    # 10:00 (exclusive)
+MORNING_END = 14    # 10:00 (exclusive)
 
 folder = "gallery"
 count = 0
