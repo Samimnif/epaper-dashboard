@@ -8,6 +8,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 import epd7in3f
 from data_store import read_data
+from formatting import format_collection_date, format_bus_times, BIN_LABELS
 
 
 class edisplay:
@@ -94,31 +95,31 @@ class edisplay:
         draw.text((5, 0), f'{date.today().strftime("%B %d, %Y")}', font=self.font40, fill=self.epd.BLACK)
         draw.text((5, 30), f'{datetime.now().strftime("%H:%M")}', font=self.font80, fill=self.epd.BLACK)
 
-        if self.garbageD:
-            try:
-                dt = datetime.strptime(self.garbageD, "%Y%m%d")
-                formatted = dt.strftime("%B %d, %Y")
-            except ValueError:
-                formatted = "unknown"
-        else:
-            formatted = "unknown"
-        draw.text((5, 125), f'Collection: {formatted}', font=self.font24, fill=self.epd.BLACK)
+        collection_date = format_collection_date(self.garbageD)
+        draw.text((5, 125), f'Collection: {collection_date}', font=self.font24, fill=self.epd.BLACK)
 
-        if self.garbage:
-            draw.rectangle((5, 170, 55, 220), fill=self.epd.RED)
-            draw.text((60, 185), 'Garbage', font=self.font18, fill=self.epd.RED)
-        if self.yard:
-            draw.rectangle((5, 230, 55, 280), fill=self.epd.ORANGE)
-            draw.text((60, 245), 'Yard Trimmings', font=self.font18, fill=self.epd.ORANGE)
-        if self.green:
-            draw.rectangle((5, 290, 55, 340), fill=self.epd.GREEN)
-            draw.text((60, 305), 'Green Bin', font=self.font18, fill=self.epd.GREEN)
-        if self.blue:
-            draw.rectangle((5, 350, 55, 400), fill=self.epd.BLUE)
-            draw.text((60, 365), 'Plastic', font=self.font18, fill=self.epd.BLUE)
-        if self.black:
-            draw.rectangle((5, 410, 55, 460), fill=self.epd.BLACK)
-            draw.text((60, 425), 'Paper/Cardboard', font=self.font18, fill=self.epd.BLACK)
+        # Only draw a row for bins that are actually collected this week -
+        # no greyed-out/placeholder rows for bins that don't apply.
+        bin_rows = [
+            ("garbage", self.garbage, self.epd.RED),
+            ("yard", self.yard, self.epd.ORANGE),
+            ("green", self.green, self.epd.GREEN),
+            ("blue", self.blue, self.epd.BLUE),
+            ("black", self.black, self.epd.BLACK),
+        ]
+        y = 170
+        row_height = 60
+        any_bin_active = False
+        for key, active, color in bin_rows:
+            if not active:
+                continue
+            any_bin_active = True
+            draw.rectangle((5, y, 55, y + 50), fill=color)
+            draw.text((60, y + 15), BIN_LABELS[key], font=self.font18, fill=color)
+            y += row_height
+
+        if not any_bin_active:
+            draw.text((5, 170), 'No collection this week', font=self.font18, fill=self.epd.BLACK)
 
         draw.line((380, 5, 380, 450), fill=self.epd.BLACK)
 
@@ -126,11 +127,11 @@ class edisplay:
         x_times = 500
         header_h = 50
         row_h = 45
-        time_gap = 85
-        now = int(time.time())
-        max_times = 4
+        time_gap = 130
+        max_times = 3
 
         draw.text((400, 0), 'Buses', font=self.font40, fill=self.epd.RED)
+        now = datetime.now()
         for row, (route, times) in enumerate(self.bus.items()):
             y = header_h + row * row_h
 
@@ -140,9 +141,13 @@ class edisplay:
             else:
                 draw.text((x_route, y), route, font=self.font40, fill=self.epd.BLACK)
 
-            for col, ts in enumerate(times[:max_times]):
-                diff_min = max(0, (int(ts) - now) // 60)
-                draw.text((x_times + col * time_gap, y + 10), f"{diff_min} min", font=self.font18, fill=self.epd.BLACK)
+            entries = format_bus_times(times, now=now, max_items=max_times)
+            if entries:
+                for col, entry in enumerate(entries):
+                    label = f"{entry['minutes']}m"
+                    draw.text((x_times + col * time_gap, y + 10), label, font=self.font18, fill=self.epd.BLACK)
+            else:
+                draw.text((x_times, y + 10), "-", font=self.font18, fill=self.epd.BLACK)
 
         self.epd.display(self.epd.getbuffer(self.Himage))
 

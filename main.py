@@ -3,23 +3,36 @@
 """
 Single-process e-paper dashboard.
 
-Why one process instead of two pm2 apps:
-  - The old setup had main.py (display loop) and access_page.py (Flask
-    upload UI) running as separate processes, plus garbage_collection.py
-    and octranspo_gtfs.py each running their update-and-exit logic at
-    IMPORT time. Four independent things touching the same JSON file with
-    no coordination is exactly what caused the empty/corrupted file bug.
-  - Now there's one process. The bus/garbage updaters and the display
-    loop run as background threads inside the same Flask process, so pm2
-    only needs to manage one app, and there's exactly one thing on the Pi
-    talking to the e-paper's SPI bus at a time.
-  - display-data.json is still used for persistence (so data survives a
-    restart), but all reads/writes go through data_store.py, which uses
-    atomic writes + a cross-process lock, so it's safe even if you still
-    run garbage_collection.py / octranspo_gtfs.py standalone for testing.
+Architecture recap:
+  - One Flask process serves the dashboard (gallery + live bus times +
+    garbage status) AND runs the bus updater, garbage updater, and e-paper
+    loop as background threads. Only one thing ever talks to the e-paper's
+    SPI bus, and pm2 only has one process to manage.
+  - display-data.json is the persistence layer; all reads/writes go through
+    data_store.py (atomic writes + cross-process lock), so it survives
+    crashes/restarts without corruption.
+  - formatting.py has the shared logic for turning raw timestamps/date
+    strings/booleans into human-readable text, used by both the web page
+    and the e-paper renderer, so they always agree.
+
+On refresh cadence / panel wear:
+  - The web dashboard reads display-data.json fresh on every page load, so
+    it's always as current as the last background data fetch (every 30s
+    for buses). Slowing down the physical e-paper redraw does NOT make the
+    web page stale - they're decoupled.
+  - The e-paper panel itself is now throttled on purpose:
+      * the bus/garbage view repaints every DAY_VIEW_REFRESH_INTERVAL
+        (default 5 min) instead of every 70s,
+      * gallery photos rotate every GALLERY_ROTATE_INTERVAL (default 1
+        hour) instead of every 70s.
+    Full-color e-paper refreshes are slow and do wear the panel over many
+    thousands of cycles, so there's no reason to redraw the same bus ETA
+    ballpark every 70 seconds. Tune the two constants below if you want it
+    snappier or even more conservative.
 """
 
 import os
+import time
 import threading
 from datetime import datetime
 
@@ -30,7 +43,8 @@ from flask import (
 from werkzeug.utils import secure_filename
 from PIL import Image
 
-from data_store import read_data
+from data_store import read_data, last_updated
+from formatting import format_collection_date, active_bins, format_bus_times
 from garbage_collection import get_garbage
 from octranspo_gtfs import update_json
 from display_show import edisplay
@@ -45,9 +59,15 @@ ALLOWED_EXT = {"png", "jpg", "jpeg", "webp", "bmp", "gif", "tiff"}
 MORNING_START = 5   # 05:00, inclusive
 MORNING_END = 14     # 14:00, exclusive - dashboard shows bus/garbage view in this window
 
+# Background data fetch cadence (cheap: just an HTTP call + JSON write)
 BUS_UPDATE_INTERVAL = 30          # seconds
 GARBAGE_UPDATE_INTERVAL = 86400   # seconds (once a day)
-DISPLAY_LOOP_INTERVAL = 70        # seconds
+
+# Physical e-paper redraw cadence (expensive: a real panel refresh).
+# Decoupled from the data fetch above on purpose - see module docstring.
+DAY_VIEW_REFRESH_INTERVAL = 300    # 5 minutes
+GALLERY_ROTATE_INTERVAL = 3600     # 1 hour
+LOOP_POLL_INTERVAL = 10            # how often we just *check* if it's time to redraw
 
 BUS_ROUTES = ["99", "70", "74", "73", "110", "198", "299", "283"]
 
@@ -69,7 +89,7 @@ def _repeat(interval, func, name):
 
     This replaces the old `threading.Timer(30, update_json).start()` pattern,
     which only ever fired ONCE - Timer is a one-shot alarm, not a recurring
-    scheduler, so the bus data was likely never actually refreshing.
+    scheduler.
     """
     def worker():
         while not stop_event.is_set():
@@ -85,28 +105,44 @@ def _repeat(interval, func, name):
 
 
 def _display_loop():
+    """Decides WHAT to show and WHEN to actually push a new frame to the panel.
+
+    Data keeps refreshing in the background every 30s regardless (cheap),
+    but the physical redraw only happens on the slower cadence below to
+    reduce wear on the e-paper panel.
+    """
     global _gallery_index
+    last_day_refresh = 0.0
+    last_gallery_rotate = 0.0
+
     while not stop_event.is_set():
+        now_ts = time.time()
         hour = datetime.now().hour
+
         try:
             if MORNING_START <= hour < MORNING_END:
-                display.day_disp()
+                if now_ts - last_day_refresh >= DAY_VIEW_REFRESH_INTERVAL:
+                    display.day_disp()
+                    last_day_refresh = now_ts
             else:
-                files = [
-                    os.path.join(GALLERY_DIR, f)
-                    for f in sorted(os.listdir(GALLERY_DIR))
-                    if os.path.isfile(os.path.join(GALLERY_DIR, f))
-                ]
-                if files:
-                    with _gallery_index_lock:
-                        if _gallery_index >= len(files):
-                            _gallery_index = 0
-                        path = files[_gallery_index]
-                        _gallery_index += 1
-                    display.gallery_disp_img(path)
+                if now_ts - last_gallery_rotate >= GALLERY_ROTATE_INTERVAL:
+                    files = [
+                        os.path.join(GALLERY_DIR, f)
+                        for f in sorted(os.listdir(GALLERY_DIR))
+                        if os.path.isfile(os.path.join(GALLERY_DIR, f))
+                    ]
+                    if files:
+                        with _gallery_index_lock:
+                            if _gallery_index >= len(files):
+                                _gallery_index = 0
+                            path = files[_gallery_index]
+                            _gallery_index += 1
+                        display.gallery_disp_img(path)
+                    last_gallery_rotate = now_ts
         except Exception as e:
             print(f"[display-loop] error: {e}")
-        stop_event.wait(DISPLAY_LOOP_INTERVAL)
+
+        stop_event.wait(LOOP_POLL_INTERVAL)
 
 
 def start_background_workers():
@@ -175,7 +211,7 @@ PAGE = """
   <style>
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
     .path { max-width: 420px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .badge-off { opacity: .35; }
+    .bus-time { display: inline-block; margin: 2px 6px 2px 0; }
   </style>
 </head>
 
@@ -195,17 +231,23 @@ PAGE = """
     {% endif %}
   {% endwith %}
 
+  {% if data_updated %}
+    <p class="text-muted small mb-3">Data last refreshed: {{ data_updated }}</p>
+  {% endif %}
+
   <div class="row g-3 mb-4">
     <div class="col-md-6">
       <div class="card shadow-sm h-100">
         <div class="card-header"><strong>Garbage / Recycling</strong></div>
         <div class="card-body">
-          <p class="mb-2">Collection date: <span class="mono">{{ garbage.date or "unknown" }}</span></p>
-          <span class="badge text-bg-danger {{ '' if garbage.garbage else 'badge-off' }}">Garbage</span>
-          <span class="badge text-bg-warning {{ '' if garbage.yard else 'badge-off' }}">Yard Trimmings</span>
-          <span class="badge text-bg-success {{ '' if garbage.green else 'badge-off' }}">Green Bin</span>
-          <span class="badge text-bg-primary {{ '' if garbage.blue else 'badge-off' }}">Blue - Plastic</span>
-          <span class="badge text-bg-dark {{ '' if garbage.black else 'badge-off' }}">Black - Paper</span>
+          <p class="mb-2">Collection date: <strong>{{ collection_date }}</strong></p>
+          {% if bins_this_week %}
+            {% for b in bins_this_week %}
+              <span class="badge {{ b.badge_class }} me-1">{{ b.label }}</span>
+            {% endfor %}
+          {% else %}
+            <p class="text-muted mb-0">No collection scheduled this week.</p>
+          {% endif %}
         </div>
       </div>
     </div>
@@ -217,10 +259,20 @@ PAGE = """
           <table class="table table-sm mb-0">
             <thead><tr><th>Route</th><th>Next arrivals</th></tr></thead>
             <tbody>
-              {% for route, times in bus_data.items() %}
+              {% for route, entries in bus_rows.items() %}
                 <tr>
                   <td class="mono">{{ route }}</td>
-                  <td class="mono">{{ times|join(', ') if times else '—' }}</td>
+                  <td>
+                    {% if entries %}
+                      {% for e in entries %}
+                        <span class="badge text-bg-light border bus-time">
+                          {{ e.clock }} <span class="text-muted">({{ e.minutes }} min)</span>
+                        </span>
+                      {% endfor %}
+                    {% else %}
+                      <span class="text-muted">No upcoming times</span>
+                    {% endif %}
+                  </td>
                 </tr>
               {% endfor %}
             </tbody>
@@ -295,11 +347,14 @@ PAGE = """
 @app.get("/")
 def index():
     data = read_data()
+    updated = last_updated()
     return render_template_string(
         PAGE,
         files=list_gallery_files(),
-        bus_data={r: data.get(r, []) for r in BUS_ROUTES},
-        garbage=data,
+        collection_date=format_collection_date(data.get("date")),
+        bins_this_week=active_bins(data),
+        bus_rows={route: format_bus_times(data.get(route, [])) for route in BUS_ROUTES},
+        data_updated=updated.strftime("%Y-%m-%d %H:%M:%S") if updated else None,
     )
 
 

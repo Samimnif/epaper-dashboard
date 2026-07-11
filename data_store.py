@@ -25,6 +25,7 @@ import json
 import os
 import tempfile
 import threading
+from datetime import datetime
 
 from filelock import FileLock
 
@@ -73,6 +74,14 @@ def read_data():
     """Read the whole data file. Creates/repairs it with defaults if missing or corrupt."""
     with _thread_lock, _file_lock:
         return _load_locked()
+
+
+def last_updated():
+    """Return the datetime the data file was last written, or None if it doesn't exist yet."""
+    try:
+        return datetime.fromtimestamp(os.path.getmtime(DATA_PATH))
+    except OSError:
+        return None
 
 
 def update_data(mutate_fn):
