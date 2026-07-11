@@ -1,0 +1,8 @@
+flask
+pillow
+python-dotenv
+filelock
+gtfs-realtime-bindings
+# On the Raspberry Pi itself, epdconfig.py also needs:
+spidev
+gpiozero

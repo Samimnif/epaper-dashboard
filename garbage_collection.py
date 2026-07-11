@@ -1,79 +1,89 @@
-import urllib.request, json
+import urllib.request
 import os
-from dotenv import load_dotenv
 from datetime import datetime, timedelta
-import json
 
-def get_garbage():
-    load_dotenv()
+from dotenv import load_dotenv
 
-    CLIENT_ID = os.getenv('CLIENT_ID')
+from data_store import update_data
 
-    url = f"https://recollect.a.ssl.fastly.net/api/places/{CLIENT_ID}/services/208/events.en.ics"
+load_dotenv()
 
-    req = urllib.request.Request(url)
 
-    req.get_method = lambda: 'GET'
-    response = urllib.request.urlopen(req)
-    print(response.getcode())
-    data = response.read()
-
-    ics_data = data.decode('utf-8')
+def _parse_ics(ics_text):
     events = []
-    in_event = False
-    lines = ics_data.split('\n')
-    for line in lines:
+    event = None
+    for line in ics_text.split('\n'):
         if line.startswith("BEGIN:VEVENT"):
             event = {}
-            in_event = True
             continue
         if line.startswith("END:VEVENT"):
-            events.append(event)
-            in_event = False
+            if event is not None:
+                events.append(event)
+            event = None
             continue
-        if in_event:
-            if ':' in line:
-                key, val = line.split(':', 1)  # Split only once to handle values containing ':'
-                event[key] = val.split('\r')[0]
+        if event is not None and ':' in line:
+            key, val = line.split(':', 1)  # split once, values can contain ':'
+            event[key] = val.split('\r')[0]
+    return events
 
-    #print(events)
+
+def get_garbage():
+    """Fetch this week's collection schedule and merge it into display-data.json."""
+    client_id = os.getenv('CLIENT_ID')
+    if not client_id:
+        print("garbage_collection: CLIENT_ID not set in .env, skipping")
+        return
+
+    url = f"https://recollect.a.ssl.fastly.net/api/places/{client_id}/services/208/events.en.ics"
+
+    try:
+        req = urllib.request.Request(url, method='GET')
+        with urllib.request.urlopen(req, timeout=15) as response:
+            ics_data = response.read().decode('utf-8')
+    except Exception as e:
+        print(f"garbage_collection: failed to fetch events: {e}")
+        return
+
+    events = _parse_ics(ics_data)
 
     today = datetime.today().date()
     start_of_this_week = today - timedelta(days=today.weekday())
     start_of_next_week = start_of_this_week + timedelta(weeks=1)
-    end_of_next_week = start_of_next_week + timedelta(weeks=1)
+
     events_this_week = []
-    events_next_week = []
-
     for event in events:
-        # Parse the start date of the event
-        start_date_str = event['DTSTART;VALUE=DATE']
+        start_date_str = event.get('DTSTART;VALUE=DATE')
+        if not start_date_str:
+            continue
         start_date = datetime.strptime(start_date_str, '%Y%m%d').date()
-
-        # Check if the event is for this week or next week
         if start_of_this_week <= start_date < start_of_next_week:
             events_this_week.append(event)
-        elif start_date >= start_of_next_week and start_date < end_of_next_week:
-            events_next_week.append(event)
 
-    with open('./display-data.json', 'r') as file:
-        data = json.load(file)
-    with open('./display-data.json', 'w') as file:
+    if not events_this_week:
+        print("garbage_collection: no events found for this week")
+        return
+
+    def mutate(data):
         for event in events_this_week:
-            data['date'] = event['DTSTART;VALUE=DATE']#datetime.strptime(event['DTSTART;VALUE=DATE'], '%Y%m%d')
-            for i in ['garbage', 'yard', 'green', 'blue', 'black']:
-                data[i] = False
-            for i in event['DESCRIPTION'].split('\\, '):
-                i = i.lower()
-                if 'garbage' in i:
+            data['date'] = event['DTSTART;VALUE=DATE']
+            for key in ['garbage', 'yard', 'green', 'blue', 'black']:
+                data[key] = False
+            for part in event.get('DESCRIPTION', '').split('\\, '):
+                part = part.lower()
+                if 'garbage' in part:
                     data['garbage'] = True
-                elif 'yard' in i:
+                elif 'yard' in part:
                     data['yard'] = True
-                elif 'green' in i:
+                elif 'green' in part:
                     data['green'] = True
-                elif 'blue' in i:
+                elif 'blue' in part:
                     data['blue'] = True
-                elif 'black' in i:
+                elif 'black' in part:
                     data['black'] = True
-        json.dump(data, file, indent=4)
-get_garbage()
+
+    update_data(mutate)
+    print("garbage_collection: display-data.json updated")
+
+
+if __name__ == "__main__":
+    get_garbage()

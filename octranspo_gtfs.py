@@ -1,112 +1,117 @@
-import urllib.request, json
+import urllib.request
 import os
+import csv
+
 from dotenv import load_dotenv
 from google.transit import gtfs_realtime_pb2
-from datetime import datetime
-import csv
+
+from data_store import update_data
 
 load_dotenv()
 
 API_KEY = os.getenv('API_KEY')
-trips_dict = dict()
-stops_dict = dict()
 
-with open("./GTFSExport/trips.txt", mode='r', newline='', encoding='utf-8') as file:
-    reader = csv.DictReader(file)
-    for row in reader:
-        trip_id = row['trip_id']
-        trips_dict[trip_id] = {
-            'route_id': row.get('route_id'),
-            'trip_headsign': row.get('trip_headsign'),
-            'direction_id': row.get('direction_id')
-        }
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+_trips_dict = {}
+_stops_dict = {}
 
-with open("./GTFSExport/stops.txt", mode='r', newline='', encoding='utf-8') as file:
-    reader = csv.DictReader(file)
-    for row in reader:
-        stop_id = row['stop_id']
-        stops_dict[stop_id] = {
-            'stop_name': row.get('stop_name'),
-            'stop_code': row.get('stop_code')
-        }
+# route -> stop_code, kept in one place so it's easy to add/remove routes
+ROUTE_STOPS = {
+    '99': '4645',
+    '73': '9819',
+    '74': '9819',
+    '70': '9819',
+    '110': '9819',
+    '198': '9819',
+    '299': '4645',
+    '283': '9819',
+}
+
+
+def _load_static_gtfs():
+    global _trips_dict, _stops_dict
+    trips_path = os.path.join(_BASE_DIR, "GTFSExport", "trips.txt")
+    stops_path = os.path.join(_BASE_DIR, "GTFSExport", "stops.txt")
+
+    with open(trips_path, mode='r', newline='', encoding='utf-8') as file:
+        for row in csv.DictReader(file):
+            _trips_dict[row['trip_id']] = {
+                'route_id': row.get('route_id'),
+                'trip_headsign': row.get('trip_headsign'),
+                'direction_id': row.get('direction_id'),
+            }
+
+    with open(stops_path, mode='r', newline='', encoding='utf-8') as file:
+        for row in csv.DictReader(file):
+            _stops_dict[row['stop_id']] = {
+                'stop_name': row.get('stop_name'),
+                'stop_code': row.get('stop_code'),
+            }
+
+
+_load_static_gtfs()
+
 
 def get_trips():
     try:
         url = "https://nextrip-public-api.azure-api.net/octranspo/gtfs-rt-tp/beta/v1/TripUpdates"
-
         hdr = {
-            # Request headers
             'Cache-Control': 'no-cache',
             'Ocp-Apim-Subscription-Key': API_KEY,
         }
-
-        req = urllib.request.Request(url, headers=hdr)
-        req.get_method = lambda: 'GET'
-        response = urllib.request.urlopen(req)
-
-        return response.read()
+        req = urllib.request.Request(url, headers=hdr, method='GET')
+        with urllib.request.urlopen(req, timeout=15) as response:
+            return response.read()
     except Exception as e:
-        print(e)
+        print(f"octranspo_gtfs: failed to fetch trip updates: {e}")
+        return None
+
 
 def get_bus_atStop(bus_id, stop_code):
-    global trips_dict, stops_dict
     data = get_trips()
+    if data is None:
+        return []
 
     feed = gtfs_realtime_pb2.FeedMessage()
     feed.ParseFromString(data)
 
-    allTimes = []
-
+    all_times = []
     for entity in feed.entity:
         if not entity.HasField("trip_update"):
             continue
 
         trip_update = entity.trip_update
-        route_id = trip_update.trip.route_id
+        if trip_update.trip.route_id != bus_id:
+            continue
 
-        if route_id != bus_id:
-            continue  # Skip other routes
-
-        print(f"\nTrip ID: {trip_update.trip.trip_id}, Route: {route_id}\n ") #{trips_dict[trip_update.trip.trip_id]}
         for stu in trip_update.stop_time_update:
-            stop_id = stu.stop_id
+            stop_info = _stops_dict.get(stu.stop_id)
+            if not stop_info or stop_info['stop_code'] != stop_code:
+                continue
 
-            # Debug: print all stop IDs for this trip
-            print(f"  -> Stop ID in trip: {stop_id} {stops_dict[stop_id]['stop_name']}")
+            if stu.HasField("arrival"):
+                timestamp = stu.arrival.time
+            elif stu.HasField("departure"):
+                timestamp = stu.departure.time
+            else:
+                continue
 
-            # Check if this is the stop we care about
-            if stops_dict[stop_id]['stop_code'] == stop_code:
-                # Prefer arrival time, fallback to departure
-                if stu.HasField("arrival"):
-                    timestamp = stu.arrival.time
-                    kind = "Arrival"
-                elif stu.HasField("departure"):
-                    timestamp = stu.departure.time
-                    kind = "Departure"
-                else:
-                    continue
+            all_times.append(timestamp)
 
-                readable_time = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
-                print(f"  {kind} at Stop {stop_id} => {readable_time}")
-                allTimes.append(timestamp)
-    allTimes.sort()
-    return allTimes
+    all_times.sort()
+    return all_times
+
 
 def update_json():
-    with open('./display-data.json', 'r') as file:
-        data = json.load(file)
-    with open('./display-data.json', 'w') as file:
-        data['99'] = get_bus_atStop('99','4645')
-        data['73'] = get_bus_atStop('73', '9819')
-        data['74'] = get_bus_atStop('74', '9819')
-        data['70'] = get_bus_atStop('70', '9819')
-        data['110'] = get_bus_atStop('110', '9819')
-        data['198'] = get_bus_atStop('198', '9819')
+    """Fetch live times for every configured route/stop and merge into display-data.json."""
+    results = {route: get_bus_atStop(route, stop_code) for route, stop_code in ROUTE_STOPS.items()}
 
-        data['299'] = get_bus_atStop('299', '4645')
-        data['283'] = get_bus_atStop('283', '9819')
-        json.dump(data, file, indent=4)
+    def mutate(data):
+        data.update(results)
 
-update_json()
-# print(get_bus_atStop('99','4645'))
-# print(get_bus_atStop('74','9819'))
+    update_data(mutate)
+    print("octranspo_gtfs: display-data.json updated")
+
+
+if __name__ == "__main__":
+    update_json()
