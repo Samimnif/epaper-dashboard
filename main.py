@@ -3,32 +3,29 @@
 """
 Single-process e-paper dashboard.
 
-Architecture recap:
-  - One Flask process serves the dashboard (gallery + live bus times +
-    garbage status) AND runs the bus updater, garbage updater, and e-paper
-    loop as background threads. Only one thing ever talks to the e-paper's
-    SPI bus, and pm2 only has one process to manage.
-  - display-data.json is the persistence layer; all reads/writes go through
-    data_store.py (atomic writes + cross-process lock), so it survives
-    crashes/restarts without corruption.
-  - formatting.py has the shared logic for turning raw timestamps/date
-    strings/booleans into human-readable text, used by both the web page
-    and the e-paper renderer, so they always agree.
+Display behaviour:
+  - The panel always shows combined_disp(): a full-bleed gallery photo with
+    bus/garbage info overlaid in a corner box (see display_show.py).
+  - Since this panel only supports full-screen refreshes (no partial
+    refresh), showing the photo and the info together costs nothing extra
+    per redraw versus showing either alone - it's just one draw call.
+  - The whole combined view redraws every COMBINED_REFRESH_INTERVAL. The
+    photo itself only advances to the next one every PHOTOS_PER_ROTATION
+    redraws, so it doesn't need its own separate timer.
 
-On refresh cadence / panel wear:
-  - The web dashboard reads display-data.json fresh on every page load, so
-    it's always as current as the last background data fetch (every 30s
-    for buses). Slowing down the physical e-paper redraw does NOT make the
-    web page stale - they're decoupled.
-  - The e-paper panel itself is now throttled on purpose:
-      * the bus/garbage view repaints every DAY_VIEW_REFRESH_INTERVAL
-        (default 5 min) instead of every 70s,
-      * gallery photos rotate every GALLERY_ROTATE_INTERVAL (default 1
-        hour) instead of every 70s.
-    Full-color e-paper refreshes are slow and do wear the panel over many
-    thousands of cycles, so there's no reason to redraw the same bus ETA
-    ballpark every 70 seconds. Tune the two constants below if you want it
-    snappier or even more conservative.
+Refresh cadence reasoning:
+  - Data keeps refreshing in the background every 30s (bus) / daily
+    (garbage) regardless - that's cheap (an HTTP call + JSON write) and
+    keeps the web dashboard fresh, since it reads the JSON file directly
+    on every page load.
+  - The physical e-paper redraw is the expensive, wear-inducing part, so
+    it's throttled independently. At the default 15-minute interval this
+    is ~96 redraws/day - fewer than the old split schedule (~134/day) even
+    though it now shows more information at once.
+  - Garbage data barely changes (once a day) and a wall display doesn't
+    need to be accurate to the minute on bus ETAs, so 15 minutes is a
+    reasonable default. Tune COMBINED_REFRESH_INTERVAL if you want it
+    snappier (more wear) or even more conservative (less wear).
 """
 
 import os
@@ -56,18 +53,15 @@ os.makedirs(GALLERY_DIR, exist_ok=True)
 TARGET_SIZE = (800, 480)
 ALLOWED_EXT = {"png", "jpg", "jpeg", "webp", "bmp", "gif", "tiff"}
 
-MORNING_START = 5   # 05:00, inclusive
-MORNING_END = 14     # 14:00, exclusive - dashboard shows bus/garbage view in this window
-
 # Background data fetch cadence (cheap: just an HTTP call + JSON write)
 BUS_UPDATE_INTERVAL = 30          # seconds
 GARBAGE_UPDATE_INTERVAL = 86400   # seconds (once a day)
 
 # Physical e-paper redraw cadence (expensive: a real panel refresh).
 # Decoupled from the data fetch above on purpose - see module docstring.
-DAY_VIEW_REFRESH_INTERVAL = 300    # 5 minutes
-GALLERY_ROTATE_INTERVAL = 3600     # 1 hour
-LOOP_POLL_INTERVAL = 10            # how often we just *check* if it's time to redraw
+COMBINED_REFRESH_INTERVAL = 900    # 15 minutes - how often the panel repaints
+PHOTOS_PER_ROTATION = 4            # advance to the next photo every N redraws (~hourly at 15 min)
+LOOP_POLL_INTERVAL = 30            # how often we just *check* if it's time to redraw
 
 BUS_ROUTES = ["99", "70", "74", "73", "110", "198", "299", "283"]
 
@@ -76,6 +70,7 @@ app.secret_key = os.getenv("FLASK_SECRET_KEY", "change-me")
 
 display = edisplay()
 _gallery_index = 0
+_redraw_count = 0
 _gallery_index_lock = threading.Lock()
 stop_event = threading.Event()
 
@@ -85,12 +80,7 @@ stop_event = threading.Event()
 # ---------------------------------------------------------------------------
 
 def _repeat(interval, func, name):
-    """Run func() once immediately, then every `interval` seconds, until stop_event fires.
-
-    This replaces the old `threading.Timer(30, update_json).start()` pattern,
-    which only ever fired ONCE - Timer is a one-shot alarm, not a recurring
-    scheduler.
-    """
+    """Run func() once immediately, then every `interval` seconds, until stop_event fires."""
     def worker():
         while not stop_event.is_set():
             try:
@@ -105,42 +95,41 @@ def _repeat(interval, func, name):
 
 
 def _display_loop():
-    """Decides WHAT to show and WHEN to actually push a new frame to the panel.
+    """Redraws the combined photo+info view on a slow, fixed cadence.
 
-    Data keeps refreshing in the background every 30s regardless (cheap),
-    but the physical redraw only happens on the slower cadence below to
-    reduce wear on the e-paper panel.
+    Data (bus times, garbage schedule) keeps refreshing in the background
+    on its own faster cadence - only the physical panel redraw is throttled
+    here, to manage e-paper wear.
     """
-    global _gallery_index
-    last_day_refresh = 0.0
-    last_gallery_rotate = 0.0
+    global _gallery_index, _redraw_count
+    last_refresh = 0.0
 
     while not stop_event.is_set():
         now_ts = time.time()
-        hour = datetime.now().hour
+        if now_ts - last_refresh >= COMBINED_REFRESH_INTERVAL:
+            try:
+                files = [
+                    os.path.join(GALLERY_DIR, f)
+                    for f in sorted(os.listdir(GALLERY_DIR))
+                    if os.path.isfile(os.path.join(GALLERY_DIR, f))
+                ]
+                path = None
+                if files:
+                    with _gallery_index_lock:
+                        if _gallery_index >= len(files):
+                            _gallery_index = 0
+                        path = files[_gallery_index]
 
-        try:
-            if MORNING_START <= hour < MORNING_END:
-                if now_ts - last_day_refresh >= DAY_VIEW_REFRESH_INTERVAL:
-                    display.day_disp()
-                    last_day_refresh = now_ts
-            else:
-                if now_ts - last_gallery_rotate >= GALLERY_ROTATE_INTERVAL:
-                    files = [
-                        os.path.join(GALLERY_DIR, f)
-                        for f in sorted(os.listdir(GALLERY_DIR))
-                        if os.path.isfile(os.path.join(GALLERY_DIR, f))
-                    ]
-                    if files:
-                        with _gallery_index_lock:
-                            if _gallery_index >= len(files):
-                                _gallery_index = 0
-                            path = files[_gallery_index]
+                        _redraw_count += 1
+                        if _redraw_count >= PHOTOS_PER_ROTATION:
+                            _redraw_count = 0
                             _gallery_index += 1
-                        display.gallery_disp_img(path)
-                    last_gallery_rotate = now_ts
-        except Exception as e:
-            print(f"[display-loop] error: {e}")
+
+                display.combined_disp(path)
+            except Exception as e:
+                print(f"[display-loop] error: {e}")
+
+            last_refresh = now_ts
 
         stop_event.wait(LOOP_POLL_INTERVAL)
 
