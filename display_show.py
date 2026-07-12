@@ -12,11 +12,11 @@ from formatting import format_collection_date, format_bus_times
 
 
 class edisplay:
-    # Overlay panel geometry/position - tweak these to move or resize the box.
-    OVERLAY_WIDTH = 330
-    OVERLAY_HEIGHT = 300
-    OVERLAY_MARGIN = 12
-    OVERLAY_CORNER = "bottom_left"  # one of: bottom_left, bottom_right, top_left, top_right
+    # Layout constants for the no-background overlay - tweak to reposition things.
+    MARGIN = 16
+    INFO_MAX_WIDTH = 380   # keeps the bin/bus info clustered in one corner instead of spanning the screen
+    TIME_CORNER = "top_right"    # one of: top_left, top_right, bottom_left, bottom_right
+    INFO_CORNER = "bottom_left"  # one of: top_left, top_right, bottom_left, bottom_right
 
     def __init__(self):
         self.garbage = False
@@ -76,17 +76,16 @@ class edisplay:
         top = (img.height - self.epd.height) // 2
         return img.crop((left, top, left + self.epd.width, top + self.epd.height))
 
-    def _overlay_bounds(self):
-        w, h, m = self.OVERLAY_WIDTH, self.OVERLAY_HEIGHT, self.OVERLAY_MARGIN
-        if self.OVERLAY_CORNER == "bottom_right":
-            x0, y0 = self.epd.width - w - m, self.epd.height - h - m
-        elif self.OVERLAY_CORNER == "top_left":
-            x0, y0 = m, m
-        elif self.OVERLAY_CORNER == "top_right":
-            x0, y0 = self.epd.width - w - m, m
-        else:  # bottom_left (default)
-            x0, y0 = m, self.epd.height - h - m
-        return x0, y0, x0 + w, y0 + h
+    def _corner_xy(self, corner, margin):
+        """Top-left anchor point for a given screen corner."""
+        if corner == "top_right":
+            return self.epd.width - margin, margin
+        elif corner == "bottom_right":
+            return self.epd.width - margin, self.epd.height - margin
+        elif corner == "bottom_left":
+            return margin, self.epd.height - margin
+        else:  # top_left (default)
+            return margin, margin
 
     @staticmethod
     def _rounded_rect(draw, box, radius, **kwargs):
@@ -104,9 +103,36 @@ class edisplay:
         except AttributeError:
             return 9 * len(text)  # rough fallback for very old Pillow
 
+    @staticmethod
+    def _outlined_text(draw, xy, text, font, fill, outline, stroke_width=2):
+        """Draw text with a solid outline/halo so it stays readable directly
+        over an arbitrary photo, with no background box needed."""
+        try:
+            draw.text(xy, text, font=font, fill=fill, stroke_width=stroke_width, stroke_fill=outline)
+        except TypeError:
+            # Pillow < 6.2 doesn't support stroke_width - fake it by drawing
+            # the text offset in every direction first, then the real text on top.
+            x, y = xy
+            for dx in (-stroke_width, 0, stroke_width):
+                for dy in (-stroke_width, 0, stroke_width):
+                    if dx or dy:
+                        draw.text((x + dx, y + dy), text, font=font, fill=outline)
+            draw.text(xy, text, font=font, fill=fill)
+
+    def _framed_rect(self, draw, box, fill=None, frame_pad=2):
+        """A small rect (icon/gauge) with a black backdrop plus a white ring
+        around it, so it stays visible whether the photo behind it is light
+        or dark - a plain white-outlined shape can vanish on a light photo,
+        and a plain black one can vanish on a dark photo; this survives both."""
+        x0, y0, x1, y1 = box
+        draw.rectangle((x0 - frame_pad, y0 - frame_pad, x1 + frame_pad, y1 + frame_pad), fill=self.epd.BLACK)
+        draw.rectangle(box, fill=fill, outline=self.epd.WHITE, width=1)
+
     def combined_disp(self, image_path=None):
-        """The main view: a full-bleed gallery photo with bus/garbage info
-        overlaid in a HUD-style console panel in one corner."""
+        """The main view: a full-bleed gallery photo with the clock and
+        bus/garbage info floating directly on top - no background box, so it
+        blends into the photo. Legibility comes from outlined ("halo") text
+        instead of a solid panel."""
         self.load_data()
 
         if image_path and os.path.exists(image_path):
@@ -117,75 +143,68 @@ class edisplay:
         self.Himage = img
         draw = ImageDraw.Draw(self.Himage)
 
-        accent = self.epd.BLUE
-        x0, y0, x1, y1 = self._overlay_bounds()
-        pad = 12
-        x = x0 + pad
-        inner_right = x1 - pad
+        # --- Big clock, top-right, floating over the photo ---
+        time_text = datetime.now().strftime("%H:%M")
+        time_w = self._text_width(draw, time_text, self.font40)
+        tx, ty = self._corner_xy(self.TIME_CORNER, self.MARGIN)
+        tx -= time_w  # anchor is the corner point; shift left by the text width to right-align
+        self._outlined_text(draw, (tx, ty), time_text, font=self.font40,
+                             fill=self.epd.WHITE, outline=self.epd.BLACK, stroke_width=3)
 
-        # Outer console panel: black glass with a thin accent border
-        self._rounded_rect(draw, (x0, y0, x1, y1), radius=14, fill=self.epd.BLACK, outline=accent, width=3)
+        # --- Info block (collection + bins + buses), floating in a corner ---
+        ix, iy = self._corner_xy(self.INFO_CORNER, self.MARGIN)
+        # Reserve enough vertical room above the bottom margin for: date line,
+        # up to 2 rows of bin icons, a gap, "BUSES" label, and up to 4 bus rows.
+        block_height = 22 + 44 + 10 + 24 + (4 * 24)
+        if self.INFO_CORNER.startswith("bottom"):
+            y = iy - block_height
+        else:
+            y = iy
+        x = ix
 
-        # --- Header bar: clock + decorative status LEDs ---
-        header_h = 34
-        self._rounded_rect(draw, (x0 + 4, y0 + 4, x1 - 4, y0 + 4 + header_h), radius=10, fill=accent)
-        draw.text((x, y0 + 8), datetime.now().strftime("%H:%M"), font=self.font24, fill=self.epd.WHITE)
-
-        led_colors = [self.epd.GREEN, self.epd.YELLOW, self.epd.RED]
-        led_r = 5
-        led_cy = y0 + 4 + header_h // 2
-        led_cx = inner_right - led_r
-        for color in reversed(led_colors):
-            draw.ellipse((led_cx - led_r, led_cy - led_r, led_cx + led_r, led_cy + led_r), fill=color)
-            led_cx -= (led_r * 2 + 6)
-
-        y = y0 + 4 + header_h + 12
-
-        # --- Collection section ---
-        draw.text((x, y), "COLLECTION", font=self.font18, fill=accent)
-        y += 22
         collection_date = format_collection_date(self.garbageD)
-        draw.text((x, y), collection_date, font=self.font18, fill=self.epd.WHITE)
-        y += 28
+        self._outlined_text(draw, (x, y), f"Collection: {collection_date}", font=self.font18,
+                             fill=self.epd.WHITE, outline=self.epd.BLACK)
+        y += 26
 
         bin_defs = [
             ("garbage", self.garbage, self.epd.RED, "GRB"),
             ("yard", self.yard, self.epd.ORANGE, "YRD"),
             ("green", self.green, self.epd.GREEN, "GRN"),
             ("blue", self.blue, self.epd.BLUE, "BLU"),
-            ("black", self.black, self.epd.WHITE, "BLK"),  # white chip so it reads on the black panel
+            ("black", self.black, self.epd.BLACK, "BLK"),
         ]
         active = [(color, label) for _, is_active, color, label in bin_defs if is_active]
 
         if active:
-            chip_h = 22
-            chip_x = x
+            item_x = x
             for color, label in active:
-                chip_w = int(self._text_width(draw, label, self.font18)) + 14
-                if chip_x + chip_w > inner_right:
-                    chip_x = x
-                    y += chip_h + 6
-                text_color = self.epd.BLACK if color in (self.epd.WHITE, self.epd.YELLOW, self.epd.ORANGE) else self.epd.WHITE
-                self._rounded_rect(draw, (chip_x, y, chip_x + chip_w, y + chip_h), radius=6, fill=color)
-                draw.text((chip_x + 7, y + 2), label, font=self.font18, fill=text_color)
-                chip_x += chip_w + 6
-            y += chip_h + 12
+                label_w = self._text_width(draw, label, self.font18)
+                item_w = 14 + 6 + int(label_w) + 16
+                if item_x + item_w > x + self.INFO_MAX_WIDTH:
+                    item_x = x
+                    y += 22
+                self._framed_rect(draw, (item_x, y, item_x + 14, y + 14), fill=color)
+                self._outlined_text(draw, (item_x + 20, y - 3), label, font=self.font18,
+                                     fill=self.epd.WHITE, outline=self.epd.BLACK)
+                item_x += item_w
+            y += 22
         else:
-            draw.text((x, y), "No collection this week", font=self.font18, fill=self.epd.WHITE)
-            y += 24
+            self._outlined_text(draw, (x, y), "No collection this week", font=self.font18,
+                                 fill=self.epd.WHITE, outline=self.epd.BLACK)
+            y += 22
 
-        draw.line((x, y, inner_right, y), fill=accent, width=2)
-        y += 12
+        y += 10
 
-        # --- Buses section: route, minutes, and a small "time until arrival" gauge ---
-        draw.text((x, y), "BUSES", font=self.font18, fill=accent)
+        self._outlined_text(draw, (x, y), "BUSES", font=self.font18,
+                             fill=self.epd.YELLOW, outline=self.epd.BLACK)
         y += 24
 
         now = datetime.now()
         max_lines = 4
         shown = 0
         gauge_w, gauge_h = 60, 10
-        gauge_x = inner_right - gauge_w
+        gauge_x = x + 100
         max_wait_for_gauge = 30  # minutes; gauge reads "full" for anything sooner than this
 
         for route, times in self.bus.items():
@@ -194,22 +213,25 @@ class edisplay:
                 continue
             minutes = entries[0]["minutes"]
 
-            draw.text((x, y), route, font=self.font18, fill=self.epd.WHITE)
-            draw.text((gauge_x - 48, y), f"{minutes}m", font=self.font18, fill=self.epd.WHITE)
+            self._outlined_text(draw, (x, y), route, font=self.font18,
+                                 fill=self.epd.WHITE, outline=self.epd.BLACK)
+            self._outlined_text(draw, (x + 40, y), f"{minutes}m", font=self.font18,
+                                 fill=self.epd.WHITE, outline=self.epd.BLACK)
 
             fill_ratio = max(0.0, min(1.0, 1 - (minutes / max_wait_for_gauge)))
             filled_w = int(gauge_w * fill_ratio)
-            draw.rectangle((gauge_x, y + 4, gauge_x + gauge_w, y + 4 + gauge_h), outline=accent, width=1)
+            self._framed_rect(draw, (gauge_x, y + 4, gauge_x + gauge_w, y + 4 + gauge_h))
             if filled_w > 0:
-                draw.rectangle((gauge_x, y + 4, gauge_x + filled_w, y + 4 + gauge_h), fill=accent)
+                draw.rectangle((gauge_x, y + 4, gauge_x + filled_w, y + 4 + gauge_h), fill=self.epd.BLUE)
 
             y += 24
             shown += 1
-            if shown >= max_lines or y > y1 - pad:
+            if shown >= max_lines:
                 break
 
         if shown == 0:
-            draw.text((x, y), "No buses soon", font=self.font18, fill=self.epd.WHITE)
+            self._outlined_text(draw, (x, y), "No buses soon", font=self.font18,
+                                 fill=self.epd.WHITE, outline=self.epd.BLACK)
 
         print(
             f"display_show: combined_disp redrawing - photo={os.path.basename(image_path) if image_path else 'none'}, "
