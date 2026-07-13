@@ -4,7 +4,7 @@ import os
 import time
 from datetime import date, datetime
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 import epd7in3f
 from data_store import read_data
@@ -12,11 +12,22 @@ from formatting import format_collection_date, format_bus_times
 
 
 class edisplay:
-    # Layout constants for the no-background overlay - tweak to reposition things.
+    # Layout constants - tweak to reposition/resize things.
     MARGIN = 16
-    INFO_MAX_WIDTH = 380   # keeps the bin/bus info clustered in one corner instead of spanning the screen
     TIME_CORNER = "top_right"    # one of: top_left, top_right, bottom_left, bottom_right
     INFO_CORNER = "bottom_left"  # one of: top_left, top_right, bottom_left, bottom_right
+
+    # Frosted-glass info panel ("Liquid Glass" style). The panel is built by
+    # blurring + tinting the PHOTO PIXELS BEHIND IT (not a flat color), then
+    # letting the final 7-color quantization dither that into a frosted-looking
+    # texture. It isn't true pixel transparency (this hardware can't do that),
+    # but it reads as translucent rather than a flat solid block.
+    PANEL_WIDTH = 330
+    PANEL_HEIGHT = 300
+    PANEL_CORNER_RADIUS = 20
+    PANEL_BLUR_RADIUS = 8       # how "frosted"/soft the photo behind it looks
+    PANEL_TINT_RGB = (0, 0, 0)  # tint color blended into the blurred photo
+    PANEL_TINT_ALPHA = 130      # 0-255: how strong the tint is (higher = more opaque)
 
     def __init__(self):
         self.garbage = False
@@ -87,6 +98,48 @@ class edisplay:
         else:  # top_left (default)
             return margin, margin
 
+    def _box_at_corner(self, corner, width, height, margin):
+        """Bounding box (x0, y0, x1, y1) for a WxH panel anchored at a screen corner."""
+        if corner == "top_right":
+            x0 = self.epd.width - margin - width
+            y0 = margin
+        elif corner == "bottom_right":
+            x0 = self.epd.width - margin - width
+            y0 = self.epd.height - margin - height
+        elif corner == "bottom_left":
+            x0 = margin
+            y0 = self.epd.height - margin - height
+        else:  # top_left (default)
+            x0 = margin
+            y0 = margin
+        return x0, y0, x0 + width, y0 + height
+
+    def _frosted_panel(self, base_img, box):
+        """Return a copy of base_img with a frosted-glass rounded panel blended
+        into it at `box`: the photo pixels under the panel get blurred and
+        tinted (not replaced with a flat color), so the photo still shows
+        through - the closest a 7-color e-paper can get to real translucency."""
+        x0, y0, x1, y1 = box
+        region = base_img.crop(box)
+
+        blurred = region.filter(ImageFilter.GaussianBlur(self.PANEL_BLUR_RADIUS))
+        tint_layer = Image.new("RGB", region.size, self.PANEL_TINT_RGB)
+        blended = Image.blend(blurred, tint_layer, self.PANEL_TINT_ALPHA / 255)
+
+        # Rounded-corner mask so the panel has soft corners instead of a hard box
+        mask = Image.new("L", region.size, 0)
+        mask_draw = ImageDraw.Draw(mask)
+        self._rounded_rect(mask_draw, (0, 0, region.size[0] - 1, region.size[1] - 1),
+                            self.PANEL_CORNER_RADIUS, fill=255)
+
+        result = base_img.copy()
+        result.paste(blended, (x0, y0), mask)
+
+        # A thin light edge highlight, like a glass rim catching light
+        edge_draw = ImageDraw.Draw(result)
+        self._rounded_rect(edge_draw, box, self.PANEL_CORNER_RADIUS, outline=self.epd.WHITE, width=2)
+        return result
+
     @staticmethod
     def _rounded_rect(draw, box, radius, **kwargs):
         """draw.rounded_rectangle needs Pillow >= 8.2 - fall back to a plain
@@ -129,10 +182,9 @@ class edisplay:
         draw.rectangle(box, fill=fill, outline=self.epd.WHITE, width=1)
 
     def combined_disp(self, image_path=None):
-        """The main view: a full-bleed gallery photo with the clock and
-        bus/garbage info floating directly on top - no background box, so it
-        blends into the photo. Legibility comes from outlined ("halo") text
-        instead of a solid panel."""
+        """The main view: a full-bleed gallery photo, a big clock floating
+        top-right, and bus/garbage info sitting on a frosted-glass panel in
+        one corner (blurred/tinted photo showing through, not a flat color)."""
         self.load_data()
 
         if image_path and os.path.exists(image_path):
@@ -140,10 +192,11 @@ class edisplay:
         else:
             img = Image.new('RGB', (self.epd.width, self.epd.height), self.epd.WHITE)
 
-        self.Himage = img
+        panel_box = self._box_at_corner(self.INFO_CORNER, self.PANEL_WIDTH, self.PANEL_HEIGHT, self.MARGIN)
+        self.Himage = self._frosted_panel(img, panel_box)
         draw = ImageDraw.Draw(self.Himage)
 
-        # --- Big clock, top-right, floating over the photo ---
+        # --- Big clock, top-right, floating directly over the photo (no panel) ---
         time_text = datetime.now().strftime("%H:%M")
         time_w = self._text_width(draw, time_text, self.font40)
         tx, ty = self._corner_xy(self.TIME_CORNER, self.MARGIN)
@@ -151,20 +204,16 @@ class edisplay:
         self._outlined_text(draw, (tx, ty), time_text, font=self.font40,
                              fill=self.epd.WHITE, outline=self.epd.BLACK, stroke_width=3)
 
-        # --- Info block (collection + bins + buses), floating in a corner ---
-        ix, iy = self._corner_xy(self.INFO_CORNER, self.MARGIN)
-        # Reserve enough vertical room above the bottom margin for: date line,
-        # up to 2 rows of bin icons, a gap, "BUSES" label, and up to 4 bus rows.
-        block_height = 22 + 44 + 10 + 24 + (4 * 24)
-        if self.INFO_CORNER.startswith("bottom"):
-            y = iy - block_height
-        else:
-            y = iy
-        x = ix
+        # --- Info content, laid out inside the frosted panel ---
+        px0, py0, px1, py1 = panel_box
+        pad = 14
+        x = px0 + pad
+        y = py0 + pad
+        max_x = px1 - pad
 
         collection_date = format_collection_date(self.garbageD)
         self._outlined_text(draw, (x, y), f"Collection: {collection_date}", font=self.font18,
-                             fill=self.epd.WHITE, outline=self.epd.BLACK)
+                             fill=self.epd.WHITE, outline=self.epd.BLACK, stroke_width=1)
         y += 26
 
         bin_defs = [
@@ -181,23 +230,23 @@ class edisplay:
             for color, label in active:
                 label_w = self._text_width(draw, label, self.font18)
                 item_w = 14 + 6 + int(label_w) + 16
-                if item_x + item_w > x + self.INFO_MAX_WIDTH:
+                if item_x + item_w > max_x:
                     item_x = x
                     y += 22
                 self._framed_rect(draw, (item_x, y, item_x + 14, y + 14), fill=color)
                 self._outlined_text(draw, (item_x + 20, y - 3), label, font=self.font18,
-                                     fill=self.epd.WHITE, outline=self.epd.BLACK)
+                                     fill=self.epd.WHITE, outline=self.epd.BLACK, stroke_width=1)
                 item_x += item_w
             y += 22
         else:
             self._outlined_text(draw, (x, y), "No collection this week", font=self.font18,
-                                 fill=self.epd.WHITE, outline=self.epd.BLACK)
+                                 fill=self.epd.WHITE, outline=self.epd.BLACK, stroke_width=1)
             y += 22
 
         y += 10
 
         self._outlined_text(draw, (x, y), "BUSES", font=self.font18,
-                             fill=self.epd.YELLOW, outline=self.epd.BLACK)
+                             fill=self.epd.YELLOW, outline=self.epd.BLACK, stroke_width=1)
         y += 24
 
         now = datetime.now()
@@ -208,15 +257,17 @@ class edisplay:
         max_wait_for_gauge = 30  # minutes; gauge reads "full" for anything sooner than this
 
         for route, times in self.bus.items():
+            if y > py1 - pad - gauge_h:
+                break
             entries = format_bus_times(times, now=now, max_items=1)
             if not entries:
                 continue
             minutes = entries[0]["minutes"]
 
             self._outlined_text(draw, (x, y), route, font=self.font18,
-                                 fill=self.epd.WHITE, outline=self.epd.BLACK)
+                                 fill=self.epd.WHITE, outline=self.epd.BLACK, stroke_width=1)
             self._outlined_text(draw, (x + 40, y), f"{minutes}m", font=self.font18,
-                                 fill=self.epd.WHITE, outline=self.epd.BLACK)
+                                 fill=self.epd.WHITE, outline=self.epd.BLACK, stroke_width=1)
 
             fill_ratio = max(0.0, min(1.0, 1 - (minutes / max_wait_for_gauge)))
             filled_w = int(gauge_w * fill_ratio)
@@ -231,7 +282,7 @@ class edisplay:
 
         if shown == 0:
             self._outlined_text(draw, (x, y), "No buses soon", font=self.font18,
-                                 fill=self.epd.WHITE, outline=self.epd.BLACK)
+                                 fill=self.epd.WHITE, outline=self.epd.BLACK, stroke_width=1)
 
         print(
             f"display_show: combined_disp redrawing - photo={os.path.basename(image_path) if image_path else 'none'}, "
